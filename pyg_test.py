@@ -27,3 +27,12 @@ print("encryption key:", compress_point(encryptKey))
 
 decryptKey = ecc_calc_decryption_key(privKey, ciphertextPubKey)
 print("decryption key:", compress_point(decryptKey))
+
+
+print("\nTEST:")
+pv_key1 = secrets.randbelow(curve.field.n)
+pv_key2 = secrets.randbelow(curve.field.n)
+pv_key3 = secrets.randbelow(curve.field.n)
+print(f"key: {pv_key1}")
+print(f"key: {pv_key2}")
+print(f"key: {pv_key3}")
