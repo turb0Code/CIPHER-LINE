@@ -7,95 +7,101 @@ pip install tinyec
 import threading
 import socket
 import sys
-import multiprocessing
 from ahk import AHK
 from ahk.window import Window
+from tinyec import registry
+import secrets
 
 ##############################
 
-ADDRESS = "127.0.0.1"
-PORT = 9999
+class Encryption:
+
+    curve = registry.get_curve('brainpoolP256r1')
+
+    @staticmethod
+    def create_pv_key():
+        return secrets.randbelow(Encryption.curve.field.n)
+
+    @staticmethod
+    def create_pub_key(pv_key):
+        return pv_key * Encryption.curve.g
 
 ##############################
 
-PROCESS = multiprocessing.current_process()
-AHK = AHK()
-#WINDOW = Window.from_pid(AHK, pid=str(PROCESS.pid))
-WINDOW = AHK.active_window
-
-##############################
-
-client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.connect((ADDRESS, PORT))
-
-##############################
-
-if client.recv(1024).decode('utf-8') == "//NICKNAME":
-    nickname = input("Enter your nickname -> ")
-    client.send(nickname.encode('utf-8'))
-
-print(f"{client.recv(1024).decode('utf-8')}")
-
-def recieve_messages():
+class Background:
     pass
 
-def write():
-    pass
-
-write_process = threading.Thread(target=write)
-recieve_messages = threading.Thread(target=recieve_messages)
-
 ##############################
 
-def recieve_messages():
-    global nickname, WINDOW, AHK
+class Chat:
+    AHK = AHK()
+    WINDOW = AHK.active_window
 
-    while True:
-        try:
-            recieved = client.recv(1024).decode("utf-8")
-            spaces = 11-len(recieved)
-            if 11-len(recieved) <= 0:
-                spaces = 0
+    @staticmethod
+    def send_message(client):
+        while True:
+            message = '{}: {}'.format(nickname, input('Message -> \033[0;11'))
 
-            if recieved == "//NICKNAME":
-                pass
-            else:
-                if f"{nickname}: " in recieved:
-                    print(f"\033[F\033[K{recieved}" + ' '*spaces)
+            if "\uCBA0\uCBBC\uCC9F\uCD95\uCDB7\uCE8C\uCF97\uCFA1\n" not in message:
+                client.send(message.encode('utf-8'))
+
+            print('\r ', end='')
+            if message == "//QUIT":
+                return
+
+    @staticmethod
+    def recieve_messages(client):
+        global nickname, WINDOW, AHK
+
+        while True:
+            try:
+                recieved = client.recv(1024).decode("utf-8")
+                spaces = 11-len(recieved)
+                if 11-len(recieved) <= 0:
+                    spaces = 0
+
+                if recieved == "//NICKNAME" or recieved == "//CHATROOM":
+                    pass
                 else:
-                    print(f"\033[F\033[K{recieved}" + ' '*spaces)
-                    if not WINDOW.exists:
-                        WINDOW.activate()
-                        AHK.type("\uCBA0\uCBBC\uCC9F\uCD95\uCDB7\uCE8C\uCF97\uCFA1\n")
-                        WINDOW.minimize()
+                    if f"{nickname}: " in recieved:
+                        print(f"\033[F\033[K{recieved}" + ' '*spaces)
+                    else:
+                        print(f"\033[F\033[K{recieved}" + ' '*spaces)
+                        if not Chat.WINDOW.exists:
+                            Chat.WINDOW.activate()
+                            Chat.AHK.type("\uCBA0\uCBBC\uCC9F\uCD95\uCDB7\uCE8C\uCF97\uCFA1\n")
+                            Chat.WINDOW.minimize()
 
-                    WINDOW.activate()
-                    AHK.type("\uCBA0\uCBBC\uCC9F\uCD95\uCDB7\uCE8C\uCF97\uCFA1\n")
-        except:
-            print("An ERROR occured!")
-            client.close()
-            return
-
-##############################
-
-def write():
-    while True:
-        message = '{}: {}'.format(nickname, input('Message -> \033[0;11'))
-
-        if "\uCBA0\uCBBC\uCC9F\uCD95\uCDB7\uCE8C\uCF97\uCFA1" not in message:
-            client.send(message.encode('utf-8'))
-
-        print('\r ', end='')
-        if message == "//QUIT":
-            return
+                        Chat.WINDOW.activate()
+                        Chat.AHK.type('\uCBA0\uCBBC\uCC9F\uCD95\uCDB7\uCE8C\uCF97\uCFA1\n')
+            except:
+                print("An ERROR occured!")
+                client.close()
+                return
 
 
 ##############################
 
 if __name__ == "__main__":
 
-    write_process = threading.Thread(target=write)
-    recieve_messages = threading.Thread(target=recieve_messages)
+    ADDRESS = "127.0.0.1"
+    PORT = 9999
+
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect((ADDRESS, PORT))
+
+    if client.recv(1024).decode('utf-8') == "//NICKNAME":
+        nickname = input("Enter your nickname -> ")
+        client.send(nickname.encode('utf-8'))
+
+    if client.recv(1024).decode('utf-8') == "//CHATROOM":
+        print("TĘPA DZIDA")
+        client.send("kurwa".encode('utf-8'))
+
+    print(f"{client.recv(1024).decode('utf-8')}")
+
+    write_process = threading.Thread(target=Chat.send_message, args=(client,))
+    recieve_messages = threading.Thread(target=Chat.recieve_messages, args=(client,))
 
     write_process.start()
     recieve_messages.start()
