@@ -3,10 +3,13 @@ import socket
 import time
 from tinyec import registry
 import secrets
+from tinyec import ec
+import sys
 
 class Encryption:
 
     curve = registry.get_curve('brainpoolP256r1')
+    modulo = sys.maxunicode
 
     @staticmethod
     def create_pv_key():
@@ -15,6 +18,18 @@ class Encryption:
     @staticmethod
     def create_pub_key(pv_key):
         return pv_key * Encryption.curve.g
+
+    @staticmethod
+    def force_create_point(x, y):
+        return ec.Point(Encryption.curve, x, y)
+
+    @staticmethod
+    def encrypt(message, key):
+        return ''.join(chr((ord(c) + key.x) % Encryption.modulo) for c in message)
+
+    @staticmethod
+    def decrypt(message, key):
+        return ''.join(chr((ord(c) - key.x) % Encryption.modulo) for c in message)
 
 class Background:
     pass
@@ -37,12 +52,22 @@ class Client():
 
             client, addr = server.accept()
 
-            client.send(f"//NICKNAME".encode('utf-8'))
-            nickname = client.recv(1024).decode('utf-8')
+            ecc_pv = Encryption.create_pv_key()
+            ecc_pb = Encryption.create_pub_key(ecc_pv)
+
+            client.send(f"//KEY->{ecc_pb.x},{ecc_pb.y}".encode('utf-8'))
+            ecc_user_pb = client.recv(1024).decode('utf-8').split(",")
+            ecc_user_pb = Encryption.force_create_point(int(ecc_user_pb[0]), int(ecc_user_pb[1]))
+
+            ecc_shared =  ecc_user_pb * ecc_pv
+            print(f"X: {ecc_shared.x} \nY: {ecc_shared.y}")
+
+            client.send(Encryption.encrypt("//NICKNAME", ecc_shared).encode('utf-8'))
+            nickname = Encryption.decrypt(client.recv(1024).decode('utf-8'), ecc_shared)
             nicknames.append(nickname)
 
-            client.send(f"//CHATROOM".encode('utf-8'))
-            chat_id = client.recv(1024).decode('utf-8')
+            client.send(Encryption.encrypt("//CHATROOM", ecc_shared).encode('utf-8'))
+            chat_id = Encryption.decrypt(client.recv(1024).decode('utf-8'), ecc_shared)
             new_client = Client(client, addr, nickname, chat_id)
 
             print(f"Connected with {str(addr)} as {nickname} to chat {new_client.chat_id}.")
@@ -50,19 +75,14 @@ class Client():
             rooms_ids = [room.id for room in rooms]
 
             if new_client.chat_id in rooms_ids:
-                print("SAME ROOM")
                 room = rooms[rooms_ids.index(new_client.chat_id)]
                 room.add_user(new_client)
-                #room_id_index = rooms_ids.index(new_client.chat_id)#  TĘPA  KURWA  #
+                #room_id_index = rooms_ids.index(new_client.chat_id) ---COMMENTED---
                 room_id_index = 0
             else:
-                print("NEW ROOM")
                 rooms.append(Room(new_client.chat_id))
                 room_id_index = -1
                 rooms[room_id_index].add_user(new_client)
-                print(rooms[room_id_index])
-
-            print(f"SZMACIARZU TU SĄ USERZY: {rooms[0].clients}")
 
             Chat.broadcast(f"{nickname} JOINED CHAT".encode('utf-8'), room_id_index)
 
@@ -101,9 +121,7 @@ class Chat:
 
     @staticmethod
     def broadcast(message, chat_id_index):
-        print(message)
-        print(len(rooms))
-
+        print(f'MSG: {message}')
         for client in rooms[chat_id_index].clients:
             client.client.send(message)
 
@@ -119,7 +137,6 @@ class Chat:
 
             #chat_id_index = [room.id for room in rooms].index(client.chat_id) ---COMMENTED---
             chat_id_index = 0
-            print(chat_id_index)
 
             try:
                 recieved = client.client.recv(1024)
