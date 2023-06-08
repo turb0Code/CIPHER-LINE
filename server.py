@@ -5,6 +5,7 @@ from tinyec import registry
 import secrets
 from tinyec import ec
 import sys
+import pymongo
 
 class Encryption:
 
@@ -31,6 +32,48 @@ class Encryption:
     def decrypt(message, key):
         return ''.join(chr((ord(c) - key.x) % Encryption.modulo) for c in message)
 
+class Database:
+
+    @staticmethod
+    def connect():
+        DB_CLIENT = pymongo.MongoClient("mongodb://localhost:27017/")\
+
+        DB = DB_CLIENT["database"]
+
+        COLLECTION = DB["users"]
+
+        print(DB_CLIENT.list_database_names())
+
+        return COLLECTION
+
+    @staticmethod
+    def start():
+        Database.COLLECTION = Database.connect()
+
+    @staticmethod
+    def register(login, password, confirmation, user_id, token):
+        if password != confirmation:
+            return
+
+        data = {"user_id" : user_id, "username" : login, "password" : password, "token" : token}
+        Database.COLLECTION.insert_one(data)
+
+    @staticmethod
+    def login(login, password):
+        result = Database.COLLECTION.find({"username" : login, "password" : password})
+        try:
+            if result[0]["username"] == login:
+                return True
+            else:
+                return False
+        except:
+            return False
+
+    @staticmethod
+    def password_recovery(token, password):
+        Database.COLLECTION.update_one({"token" : token}, { "$set" : {"password" : password}})
+        print(Database.COLLECTION.find({"token" : token})[0])
+
 class Background:
     pass
 
@@ -47,7 +90,54 @@ class Client():
         self.chat_id = chat_room
 
     @staticmethod
+    def auth_user(client, addr):
+        while True:
+
+            recieved = client.recv(1023).decode('utf-8')
+
+            if recieved == "//EXIT":
+                print(f"Client {str(addr)} disconnected at the beginning.")
+                client.close()
+                return False
+            else:
+                if recieved == "//LOGIN":
+                    recieved = client.recv(1024).decode('utf-8').split("^^")
+                    login = recieved[0]
+                    password = recieved[1]
+                    if Database.login(login, password):
+                        client.send("//OK".encode('utf-8'))
+                        return True
+                    else:
+                        client.send("//ERROR[LOGIN]".encode('utf-8'))
+                        continue
+                elif recieved == "//REGISTER":
+                    recieved = client.recv(1024).decode('utf-8')
+                    if recieved != "//ERROR":
+                        recieved = recieved.split("^^")
+                        login = recieved[0]
+                        password = recieved[1]
+                        password_confirm = recieved[2]
+                        user_id = recieved[3]
+                        token = recieved[4]
+                        Database.register(login, password, password_confirm, user_id, token)
+                        return True
+                    continue
+                elif recieved == "//FORGOT":
+                    token = client.recv(1024).decode('utf-8')
+                    result = Database.COLLECTION.find_one({"token" : token})
+                    try:
+                        result["token"]
+                        client.send("//OK".encode('utf-8'))
+                        password = client.recv(1024).decode('utf-8')
+                        Database.password_recovery(token, password)
+                    except:
+                        client.send("//INVALID".encode('utf-8'))
+                    continue
+
+    @staticmethod
     def connect():
+        Database.start()
+
         while True:
 
             client, addr = server.accept()
@@ -61,6 +151,9 @@ class Client():
 
             ecc_shared =  ecc_user_pb * ecc_pv
             print(f"X: {ecc_shared.x} \nY: {ecc_shared.y}")
+
+            if not Client.auth_user(client, addr):
+                continue
 
             client.send(Encryption.encrypt("//NICKNAME", ecc_shared).encode('utf-8'))
             nickname = Encryption.decrypt(client.recv(1024).decode('utf-8'), ecc_shared)
@@ -140,12 +233,13 @@ class Chat:
 
             try:
                 recieved = client.client.recv(1024)
-                if recieved == "//QUIT".encode('utf-8'):
-                    Chat.users.remove(client)
-                    rooms[client.chat_id].del_client(client)
-                    client.close()
-                    nicknames.remove(nickname)
+                if "//EXIT".encode('utf-8') in recieved:
                     Chat.broadcast(f"{nickname} LEFT CHAT".encode('utf-8'), chat_id_index)
+                    Chat.users.remove(client)
+                    rooms[chat_id_index].del_client(client)
+                    client.client.close()
+                    nicknames.remove(nickname)
+                    print(f"User {nickname} left chat.")
                     break
                 else:
                     Chat.broadcast(recieved, chat_id_index)
