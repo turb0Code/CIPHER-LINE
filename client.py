@@ -17,13 +17,8 @@ import random
 
 ##############################
 
-class Security:
-
-    @staticmethod
-    def hash_sha(data):
-        sha256 = hashlib.sha256()
-        sha256.update(data.encode("utf-8"))
-        return sha256.hexdigest()
+class SAFE_ZONE:
+    pass
 
 ##############################
 
@@ -69,6 +64,12 @@ class Encryption:
         client.send(f"//RES->{ecc_pb.x},{ecc_pb.y}".encode('utf-8'))
         ecc_shared = ecc_client_pb * ecc_pv
         return ecc_shared
+
+    @staticmethod
+    def hash_sha(data):
+        sha256 = hashlib.sha256()
+        sha256.update(data.encode("utf-8"))
+        return sha256.hexdigest()
 
 ##############################
 
@@ -127,7 +128,7 @@ class Client_side:
         print("\n" + "-"*20 + "\nLOGIN")
         login = input(str("LOGIN -> "))
         password = input(str("PASSWORD -> "))
-        client.send(f"{login}^^{Security.hash_sha(password)}".encode('utf-8'))
+        client.send(f"{login}^^{Encryption.hash_sha(password)}".encode('utf-8'))
         return login
 
     @staticmethod
@@ -135,8 +136,8 @@ class Client_side:
         client.send("//REGISTER".encode('utf-8'))
         print("\n" + "-"*20 + "\nSIGN UP")
         login = input(str("LOGIN -> "))
-        password = Security.hash_sha(input(str("PASS -> ")))
-        password_confirm = Security.hash_sha(input(str("CONFIRM PASS -> ")))
+        password = Encryption.hash_sha(input(str("PASS -> ")))
+        password_confirm = Encryption.hash_sha(input(str("CONFIRM PASS -> ")))
         user_id = Client_side.create_id(login)
         token = Client_side.create_token()
         if password != password_confirm:
@@ -144,9 +145,8 @@ class Client_side:
             client.send(f"//ERROR".encode('utf-8'))
             return ""
         else:
-            client.send(f"{login}^^{password}^^{password_confirm}^^{user_id}^^{Security.hash_sha(token)}".encode('utf-8'))
-        # Database.register(login, Security.hash_sha(password), Security.hash_sha(password_confirm), user_id, Security.hash_sha(token))
-        print(f"THIS IS YOUR RECOVERY TOKEN, NEVER FORGET IT:  {token}")
+            client.send(f"{login}^^{password}^^{password_confirm}^^{user_id}^^{Encryption.hash_sha(token)}".encode('utf-8'))
+        print(f"THIS IS YOUR RECOVERY KEY, NEVER FORGET IT:  {token}")
         return login
 
     @staticmethod
@@ -154,11 +154,11 @@ class Client_side:
         client.send("//FORGOT".encode('utf-8'))
         print("\n" + "-"*20 + "\nPASSWORD RECOVERY")
         token = input(str("TOKEN -> "))
-        client.send(f"{Security.hash_sha(token)}".encode('utf-8'))
+        client.send(f"{Encryption.hash_sha(token)}".encode('utf-8'))
         match client.recv(1024).decode("utf-8"):
             case "//OK":
-                password = Security.hash_sha(input(str("NEW PASSWORD -> ")))
-                password_confirm = Security.hash_sha(input(str("CONFIRM PASSWORD -> ")))
+                password = Encryption.hash_sha(input(str("NEW PASSWORD -> ")))
+                password_confirm = Encryption.hash_sha(input(str("CONFIRM PASSWORD -> ")))
                 if password != password_confirm:
                     print("PASSWORD AND CONFIRMATION DOES NOT MATCH!")
                     return False
@@ -181,6 +181,8 @@ class Chat:
     AHK = AHK()
     WINDOW = AHK.active_window
 
+    print("HAHAHAHHHAHA")
+
     @staticmethod
     def send_message(client):
         global ex_msg, ecc_shared
@@ -196,10 +198,10 @@ class Chat:
                 print('\033[F\r', end='')
                 print('\033[K', end='')
             elif "//EXIT" in message:
-                client.send("//EXIT".encode('utf-8')) #NOT ENCRYPTED!!!
+                client.send("//EXIT".encode('utf-8')) #NOT ENCRYPTED!!! (FOR SURE)
                 print(client.recv(1024).decode('utf-8'))
-                client.close() #NOT FOR FUTURE!!!
-                exit(0) #TODO: this should invoke chat choose interface
+                client.close()
+                exit(0) # TODO: this should invoke chat choose interface in future
             else:
                 client.send(Encryption.encrypt(message, ecc_shared).encode('utf-8'))
                 print('\033[K\r', end='')
@@ -256,9 +258,9 @@ class Interface:
     def welcome(client):
         global ecc_shared
 
-        print("""
+        print(r"""
    _____         ______ ______        _____ _    _       _______             _____  _____
-  / ____|  /\   |  ____|  ____|      / ____| |  | |   /\|__   __|      /\   |  __ \|  __ \ 
+  / ____|  /\   |  ____|  ____|      / ____| |  | |   /\|__   __|      /\   |  __ \|  __ \
  | (___   /  \  | |__  | |__        | |    | |__| |  /  \  | |        /  \  | |__) | |__) |
   \___ \ / /\ \ |  __| |  __|       | |    |  __  | / /\ \ | |       / /\ \ |  ___/|  ___/
   ____) / ____ \| |    | |____      | |____| |  | |/ ____ \| |      / ____ \| |    | |
@@ -296,6 +298,49 @@ class Interface:
                     continue
         return login
 
+    @staticmethod
+    def choose_chat(client, nickname):
+
+        print("BEFORE LIST")
+
+        friends = eval(client.recv(1024).decode('utf-8')) #recieve
+
+        print(friends)
+
+        while True:
+            print("\n" + "-"*20 + "\nPICK CHAT:")
+            i = 1
+            for _ in range(len(friends)):
+                print(f"{i}. {friends[_]}")
+                i += 1
+
+            print(f"{i}. NEW USER \n{i+1}. SETTINGS \n{i+2}. EXIT")
+            choice = int(input(str("> ")))
+
+            if choice == i+2:
+                print("\n" + "-"*20 +"\nEXITING...")
+                client.send("//EXIT".encode('utf-8'))
+                exit(0)
+            elif choice == i+1:
+                print("\n" + "-"*20 +"\nSETTINGS")
+                break
+            elif choice == i:
+                print("\n" + "-"*20 +"ADD NEW USER")
+                client.send("//NEW[USER]".encode('utf-8'))
+                friend_name = input(str("FRIEND LOGIN -> "))
+                friend_id = input(str("FRIEND ID -> "))
+                client.send(f"{friend_id}^^{friend_name}".encode('utf-8'))
+                friends = client.recv(1024).decode('utf-8')
+                continue
+            elif choice < i and choice >= 1:
+                print("\n" + "-"*20 + f"\nChatting with user {friends[choice-1]}")
+                client.send("//PICK".encode('utf-8'))
+                chat = friends[choice-1]  # TODO: send it to server
+                break
+            else:
+                print("\nINVALID OPTION!")
+        return chat
+
 ##############################
 
 if __name__ == "__main__":
@@ -328,8 +373,10 @@ if __name__ == "__main__":
     #     nickname = input("Enter your nickname -> ")
         client.send(Encryption.encrypt(nickname, ecc_shared).encode('utf-8'))
 
+
     if Encryption.decrypt(client.recv(1024).decode('utf-8') , ecc_shared) == "//CHATROOM":
-        client.send(Encryption.encrypt("kurwa", ecc_shared).encode('utf-8'))
+        chat_room = Interface.choose_chat(client, nickname)
+        client.send(Encryption.encrypt(chat_room, ecc_shared).encode('utf-8'))
 
     print(f"\033[K{client.recv(1024).decode('utf-8')}")
 
@@ -339,4 +386,7 @@ if __name__ == "__main__":
     write_process.start()
     recieve_messages.start()
 
-    sys.exit(0)
+    write_process.join()
+    recieve_messages.join()
+
+    exit(0)

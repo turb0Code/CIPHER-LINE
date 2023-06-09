@@ -7,6 +7,8 @@ from tinyec import ec
 import sys
 import pymongo
 
+##############################
+
 class Encryption:
 
     curve = registry.get_curve('brainpoolP256r1')
@@ -32,11 +34,13 @@ class Encryption:
     def decrypt(message, key):
         return ''.join(chr((ord(c) - key.x) % Encryption.modulo) for c in message)
 
+##############################
+
 class Database:
 
     @staticmethod
     def connect():
-        DB_CLIENT = pymongo.MongoClient("mongodb://localhost:27017/")\
+        DB_CLIENT = pymongo.MongoClient("mongodb://localhost:27017/")
 
         DB = DB_CLIENT["database"]
 
@@ -55,7 +59,7 @@ class Database:
         if password != confirmation:
             return
 
-        data = {"user_id" : user_id, "username" : login, "password" : password, "token" : token}
+        data = {"user_id" : user_id, "username" : login, "password" : password, "token" : token, "friends" : []}
         Database.COLLECTION.insert_one(data)
 
     @staticmethod
@@ -74,8 +78,35 @@ class Database:
         Database.COLLECTION.update_one({"token" : token}, { "$set" : {"password" : password}})
         print(Database.COLLECTION.find({"token" : token})[0])
 
+    @staticmethod
+    def get_friends(username):
+        result = Database.COLLECTION.find_one({"username" : username})
+        friends = []
+        for i in range(len(result["friends"])):
+            friends.append(f"{result['friends'][i][1]} | {result['friends'][i][0]}")
+        return friends
+
+    @staticmethod
+    def add_friend(username, friend_id, friend_name):
+        result = Database.COLLECTION.find_one({"username" : friend_name, "user_id" : friend_id})
+        try:
+            if result["user_id"] == friend_id:
+                Database.COLLECTION.update_one({"username" : username}, { "$set" : {"friends" : [[friend_id, friend_name]]}})
+                print(f"Successfully added new friend {friend_name}")
+                # TODO: SEND TO USER FRIEND LIST AND SEND SUCCESS
+            else:
+                print("USER NOT FOUND!")
+                # TODO: SEND ERROR
+        except:
+            print("USER NOT FOUND!")
+            # TODO: SEND ERROR
+
+##############################
+
 class Background:
     pass
+
+##############################
 
 class Client():
     client = ''
@@ -135,6 +166,55 @@ class Client():
                     continue
 
     @staticmethod
+    def generate_chat_id(first_user, second_user):
+        first_output = 0
+        second_output = 0
+
+        if len(first_user) > len(second_user):
+            lenght = len(second_user)
+        else:
+            lenght = len(first_user)
+
+        for i in range(lenght):
+            tmp = i * ord(first_user[i])
+            first_output += tmp
+
+        for i in range(lenght):
+            tmp = i * ord(second_user[i])
+            second_output += tmp
+
+        return first_output * second_output
+
+    @staticmethod
+    def get_chat_id(client, nickname, ecc_shared):
+
+        print("BEFORE SEND")
+
+        client.send(f"{Database.get_friends(nickname)}".encode('utf-8'))
+
+        print(Database.get_friends(nickname))
+
+        while True:
+
+            recieved = client.recv(1024).decode('utf-8')
+
+            if recieved == "//EXIT":
+                print(f"User {nickname} disconnected!")
+                client.close()
+                break # TODO: make a thread die
+            elif recieved == "//NEW[USER]":
+                recieved = client.recv(1024).decode('utf-8').split("^^")
+                Database.add_friend(nickname, recieved[0], recieved[1])
+                client.send(Database.get_friends(nickname).encode('utf-8'))
+            elif recieved == "//PICK":
+                recieved = Encryption.decrypt(client.recv(1024).decode('utf-8'), ecc_shared).split(" | ")[0]
+                chat_id = Client.generate_chat_id(nickname, recieved)
+                return chat_id # TODO: generate real chat_id from it
+            else:
+                client.close() # TODO: kick out client
+                break
+
+    @staticmethod
     def connect():
         Database.start()
 
@@ -159,36 +239,14 @@ class Client():
             nickname = Encryption.decrypt(client.recv(1024).decode('utf-8'), ecc_shared)
             nicknames.append(nickname)
 
-            client.send(Encryption.encrypt("//CHATROOM", ecc_shared).encode('utf-8'))
-            chat_id = Encryption.decrypt(client.recv(1024).decode('utf-8'), ecc_shared)
-            new_client = Client(client, addr, nickname, chat_id)
-
-            print(f"Connected with {str(addr)} as {nickname} to chat {new_client.chat_id}.")
-
-            rooms_ids = [room.id for room in rooms]
-
-            if new_client.chat_id in rooms_ids:
-                room = rooms[rooms_ids.index(new_client.chat_id)]
-                room.add_user(new_client)
-                #room_id_index = rooms_ids.index(new_client.chat_id) ---COMMENTED---
-                room_id_index = 0
-            else:
-                rooms.append(Room(new_client.chat_id))
-                room_id_index = -1
-                rooms[room_id_index].add_user(new_client)
-
-            Chat.broadcast(f"{nickname} JOINED CHAT".encode('utf-8'), room_id_index)
-
-            Chat.users.append(new_client)
-
-            thread = threading.Thread(target=Chat.handle, args=(new_client, ))
+            thread = threading.Thread(target=Chat.handle, args=(client, nickname, addr, ecc_shared, ))
             thread_pool.append(thread)
             thread.start()
 
-            new_client = ""
-
-            del nickname, new_client, client, addr, room_id_index, rooms_ids
+            del nickname, client, addr,
             time.sleep(0.5)
+
+##############################
 
 class Room:
     clients = []
@@ -202,6 +260,8 @@ class Room:
 
     def del_client(self, client):
         self.clients.remove(client)
+
+##############################
 
 class Chat:
     users = []
@@ -219,12 +279,36 @@ class Chat:
             client.client.send(message)
 
     @staticmethod
-    def handle(client):
+    def handle(client, nickname, addr, ecc_shared):
+
+        client.send(Encryption.encrypt("//CHATROOM", ecc_shared).encode('utf-8'))
+        chat_id = Client.get_chat_id(client, nickname, ecc_shared) #TODO: CHANGE IT!
+        new_client = Client(client, addr, nickname, chat_id)
+
+        Chat.users.append(new_client)
+
+        indexx = Chat.users.index(new_client)
+
+        rooms_ids = [room.id for room in rooms]
+
+        if new_client.chat_id in rooms_ids:
+            room = rooms[rooms_ids.index(new_client.chat_id)]
+            room.add_user(new_client)
+            #room_id_index = rooms_ids.index(new_client.chat_id) ---COMMENTED---
+            room_id_index = 0
+        else:
+            rooms.append(Room(new_client.chat_id))
+            room_id_index = -1
+            rooms[room_id_index].add_user(new_client)
+
+
+        print(f"Connected with {str(addr)} as {nickname} to chat {new_client.chat_id}.")
+
+        chat_id_index = 0
+
+        Chat.broadcast(f"{nickname} JOINED CHAT.".encode('utf-8'), chat_id_index)
 
         #self.users -> list of clients
-
-        indexx = Chat.users.index(client)
-        nickname = nicknames[indexx]
 
         while True:
 
@@ -232,7 +316,7 @@ class Chat:
             chat_id_index = 0
 
             try:
-                recieved = client.client.recv(1024)
+                recieved = client.recv(1024)
                 if "//EXIT".encode('utf-8') in recieved:
                     Chat.broadcast(f"{nickname} LEFT CHAT".encode('utf-8'), chat_id_index)
                     Chat.users.remove(client)
@@ -251,6 +335,7 @@ class Chat:
                 Chat.broadcast(f"{nickname} LEFT CHAT".encode('utf-8'), chat_id_index)
                 break
 
+##############################
 
 ADDRESS = "127.0.0.1"
 PORT = 9999
@@ -265,6 +350,17 @@ server.listen()
 
 nicknames = []
 thread_pool = []
+
+print(r"""
+ __  _   ___  ___    __  _ _   _  ___    _   ___ ___
+/ _|/ \ | __|| __|  / _|| U | / \|_ _|  / \ | o \ o \
+\_ \ o || _| | _|  ( (_ |   || o || |  | o ||  _/  _/
+|__/_n_||_|  |___|  \__||_n_||_n_||_|  |_n_||_| |_|
+ __  ___  ___ _ _  ___  ___
+/ _|| __|| o \ | || __|| o \
+\_ \| _| |   / V || _| |   /
+|__/|___||_|\\\_/ |___||_|\\
+""")
 
 print("-"*20)
 print("Running server...")
