@@ -6,6 +6,7 @@ import secrets
 from tinyec import ec
 import sys
 import pymongo
+import signal
 
 ##############################
 
@@ -91,7 +92,7 @@ class Database:
         result = Database.COLLECTION.find_one({"username" : friend_name, "user_id" : friend_id})
         try:
             if result["user_id"] == friend_id:
-                Database.COLLECTION.update_one({"username" : username}, { "$set" : {"friends" : [[friend_id, friend_name]]}})
+                Database.COLLECTION.update_one({"username" : username}, { "$push" : {"friends" : [friend_id, friend_name]}})
                 print(f"Successfully added new friend {friend_name}")
                 # TODO: SEND TO USER FRIEND LIST AND SEND SUCCESS
             else:
@@ -104,7 +105,14 @@ class Database:
 ##############################
 
 class Background:
-    pass
+
+    @staticmethod
+    def ctrl_c_handler(sig, frame):
+        print("\n" + "-"*20 + "\nThank's for using SAFE CHAT APP SERVER!")
+        print("SERVER STOPPED...")
+        print("EXITING...")
+        exit(0)
+
 
 ##############################
 
@@ -188,8 +196,6 @@ class Client():
     @staticmethod
     def get_chat_id(client, nickname, ecc_shared):
 
-        print("BEFORE SEND")
-
         client.send(f"{Database.get_friends(nickname)}".encode('utf-8'))
 
         print(Database.get_friends(nickname))
@@ -201,18 +207,18 @@ class Client():
             if recieved == "//EXIT":
                 print(f"User {nickname} disconnected!")
                 client.close()
-                break # TODO: make a thread die
+                return ""
             elif recieved == "//NEW[USER]":
                 recieved = client.recv(1024).decode('utf-8').split("^^")
                 Database.add_friend(nickname, recieved[0], recieved[1])
-                client.send(Database.get_friends(nickname).encode('utf-8'))
+                client.send(f"{Database.get_friends(nickname)}".encode('utf-8'))
             elif recieved == "//PICK":
                 recieved = Encryption.decrypt(client.recv(1024).decode('utf-8'), ecc_shared).split(" | ")[0]
                 chat_id = Client.generate_chat_id(nickname, recieved)
-                return chat_id # TODO: generate real chat_id from it
+                return chat_id
             else:
                 client.close() # TODO: kick out client
-                break
+                return ""
 
     @staticmethod
     def connect():
@@ -279,52 +285,19 @@ class Chat:
             client.client.send(message)
 
     @staticmethod
-    def handle(client, nickname, addr, ecc_shared):
-
-        client.send(Encryption.encrypt("//CHATROOM", ecc_shared).encode('utf-8'))
-        chat_id = Client.get_chat_id(client, nickname, ecc_shared) #TODO: CHANGE IT!
-        new_client = Client(client, addr, nickname, chat_id)
-
-        Chat.users.append(new_client)
-
-        indexx = Chat.users.index(new_client)
-
-        rooms_ids = [room.id for room in rooms]
-
-        if new_client.chat_id in rooms_ids:
-            room = rooms[rooms_ids.index(new_client.chat_id)]
-            room.add_user(new_client)
-            #room_id_index = rooms_ids.index(new_client.chat_id) ---COMMENTED---
-            room_id_index = 0
-        else:
-            rooms.append(Room(new_client.chat_id))
-            room_id_index = -1
-            rooms[room_id_index].add_user(new_client)
-
-
-        print(f"Connected with {str(addr)} as {nickname} to chat {new_client.chat_id}.")
-
-        chat_id_index = 0
-
-        Chat.broadcast(f"{nickname} JOINED CHAT.".encode('utf-8'), chat_id_index)
-
-        #self.users -> list of clients
-
+    def chatting(client, nickname):
         while True:
 
             #chat_id_index = [room.id for room in rooms].index(client.chat_id) ---COMMENTED---
             chat_id_index = 0
 
             try:
-                recieved = client.recv(1024)
+                recieved = client.client.recv(1024)
                 if "//EXIT".encode('utf-8') in recieved:
-                    Chat.broadcast(f"{nickname} LEFT CHAT".encode('utf-8'), chat_id_index)
-                    Chat.users.remove(client)
+                    client.client.send("//EXIT".encode('utf-8'))
                     rooms[chat_id_index].del_client(client)
-                    client.client.close()
-                    nicknames.remove(nickname)
                     print(f"User {nickname} left chat.")
-                    break
+                    return True
                 else:
                     Chat.broadcast(recieved, chat_id_index)
             except:
@@ -333,9 +306,52 @@ class Chat:
                 client.client.close()
                 nicknames.remove(nickname)
                 Chat.broadcast(f"{nickname} LEFT CHAT".encode('utf-8'), chat_id_index)
+                return False
+
+    @staticmethod
+    def handle(client, nickname, addr, ecc_shared):
+
+        ecc_shared_user = ecc_shared
+
+        while True:
+
+            client.send(Encryption.encrypt("//CHATROOM", ecc_shared_user).encode('utf-8'))
+            chat_id = Client.get_chat_id(client, nickname, ecc_shared_user) #TODO: CHANGE IT!
+            if chat_id == "":
                 break
+            new_client = Client(client, addr, nickname, chat_id)
+
+            Chat.users.append(new_client)
+
+            indexx = Chat.users.index(new_client)
+
+            rooms_ids = [room.id for room in rooms]
+
+            if new_client.chat_id in rooms_ids:
+                room = rooms[rooms_ids.index(new_client.chat_id)]
+                room.add_user(new_client)
+                #room_id_index = rooms_ids.index(new_client.chat_id) ---COMMENTED---
+                room_id_index = 0
+            else:
+                rooms.append(Room(new_client.chat_id))
+                room_id_index = -1
+                rooms[room_id_index].add_user(new_client)
+
+
+            print(f"Connected with {str(addr)} as {nickname} to chat {new_client.chat_id}.")
+
+            chat_id_index = 0
+
+            Chat.broadcast(f"{nickname} JOINED CHAT.".encode('utf-8'), chat_id_index)
+
+            if not Chat.chatting(new_client, nickname):
+                break
+        return
 
 ##############################
+
+
+signal.signal(signal.SIGINT, Background.ctrl_c_handler)
 
 ADDRESS = "127.0.0.1"
 PORT = 9999
@@ -352,11 +368,11 @@ nicknames = []
 thread_pool = []
 
 print(r"""
- __  _   ___  ___    __  _ _   _  ___    _   ___ ___
+__  _   ___  ___    __  _ _   _  ___    _   ___ ___
 / _|/ \ | __|| __|  / _|| U | / \|_ _|  / \ | o \ o \
 \_ \ o || _| | _|  ( (_ |   || o || |  | o ||  _/  _/
 |__/_n_||_|  |___|  \__||_n_||_n_||_|  |_n_||_| |_|
- __  ___  ___ _ _  ___  ___
+__  ___  ___ _ _  ___  ___
 / _|| __|| o \ | || __|| o \
 \_ \| _| |   / V || _| |   /
 |__/|___||_|\\\_/ |___||_|\\

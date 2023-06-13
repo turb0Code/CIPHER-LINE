@@ -181,8 +181,6 @@ class Chat:
     AHK = AHK()
     WINDOW = AHK.active_window
 
-    print("HAHAHAHHHAHA")
-
     @staticmethod
     def send_message(client):
         global ex_msg, ecc_shared
@@ -190,22 +188,23 @@ class Chat:
         while True:
             message = '{}: {}'.format(nickname, input('Message -> \033[0;11'))
 
-            if ex_msg == 3:
-                ecc_shared = Encryption.send_exchange_keys(client, nickname)
-                ex_msg = 0
-
             if '\uCBA0\uCBBC\uCC9F\uCD95\uCDB7\uCE8C\uCF97\uCFA1' in message:
                 print('\033[F\r', end='')
                 print('\033[K', end='')
             elif "//EXIT" in message:
+                #client.send(Encryption.encrypt(f"USER {nickname} LEFT CHAT", ecc_shared).encode('utf-8')) --COMMMENTED--- THIS SHOULD BE WORKING
                 client.send("//EXIT".encode('utf-8')) #NOT ENCRYPTED!!! (FOR SURE)
-                print(client.recv(1024).decode('utf-8'))
-                client.close()
-                exit(0) # TODO: this should invoke chat choose interface in future
+                break
             else:
+
+                if ex_msg == 3:
+                    ecc_shared = Encryption.send_exchange_keys(client, nickname)
+                    ex_msg = 0
+
                 client.send(Encryption.encrypt(message, ecc_shared).encode('utf-8'))
                 print('\033[K\r', end='')
                 ex_msg += 1
+        return
 
     @staticmethod
     def recieve_messages(client):
@@ -213,13 +212,15 @@ class Chat:
 
         while True:
             try:
-                recieved = client.recv(1024).decode("utf-8")
+                recieved = client.recv(1024).decode('utf-8')
 
                 if "//KEY" in recieved and nickname not in recieved:
-                        ecc_client_pb = recieved.split("->")[1].split(",")
-                        ecc_client_pb = Encryption.force_create_point(int(ecc_client_pb[0]), int(ecc_client_pb[1]))
-                        ecc_shared = Encryption.recieve_exchange_keys(client, ecc_client_pb)
-                        ex_msg = 0
+                    ecc_client_pb = recieved.split("->")[1].split(",")
+                    ecc_client_pb = Encryption.force_create_point(int(ecc_client_pb[0]), int(ecc_client_pb[1]))
+                    ecc_shared = Encryption.recieve_exchange_keys(client, ecc_client_pb)
+                    ex_msg = 0
+                elif "//EXIT" in recieved:
+                    break
                 elif recieved == "//NICKNAME" or recieved == "//CHATROOM" or "//RES" in recieved or ("//KEY" in recieved and nickname in recieved):
                     pass
                 else:
@@ -243,11 +244,11 @@ class Chat:
                         Chat.AHK.type('\uCBA0\uCBBC\uCC9F\uCD95\uCDB7\uCE8C\uCF97\uCFA1\n')
                         ex_msg += 1
 
-
             except:
                 print("An ERROR occured!")
                 client.close()
                 return
+        return
 
 
 ##############################
@@ -301,11 +302,7 @@ class Interface:
     @staticmethod
     def choose_chat(client, nickname):
 
-        print("BEFORE LIST")
-
         friends = eval(client.recv(1024).decode('utf-8')) #recieve
-
-        print(friends)
 
         while True:
             print("\n" + "-"*20 + "\nPICK CHAT:")
@@ -330,7 +327,7 @@ class Interface:
                 friend_name = input(str("FRIEND LOGIN -> "))
                 friend_id = input(str("FRIEND ID -> "))
                 client.send(f"{friend_id}^^{friend_name}".encode('utf-8'))
-                friends = client.recv(1024).decode('utf-8')
+                friends = eval(client.recv(1024).decode('utf-8'))
                 continue
             elif choice < i and choice >= 1:
                 print("\n" + "-"*20 + f"\nChatting with user {friends[choice-1]}")
@@ -370,23 +367,30 @@ if __name__ == "__main__":
     nickname = Interface.welcome(client)
 
     if Encryption.decrypt(client.recv(1024).decode('utf8'), ecc_shared) == "//NICKNAME":
-    #     nickname = input("Enter your nickname -> ")
         client.send(Encryption.encrypt(nickname, ecc_shared).encode('utf-8'))
 
+    ecc_shared_server = ecc_shared
 
-    if Encryption.decrypt(client.recv(1024).decode('utf-8') , ecc_shared) == "//CHATROOM":
-        chat_room = Interface.choose_chat(client, nickname)
-        client.send(Encryption.encrypt(chat_room, ecc_shared).encode('utf-8'))
+    while True:
 
-    print(f"\033[K{client.recv(1024).decode('utf-8')}")
+        recieved = Encryption.decrypt(client.recv(1024).decode('utf-8') , ecc_shared_server)
 
-    write_process = threading.Thread(target=Chat.send_message, args=(client,))
-    recieve_messages = threading.Thread(target=Chat.recieve_messages, args=(client,))
+        if "//CHATROOM" in recieved:
+            print("CHOOSE CHATTT")
+            chat_room = Interface.choose_chat(client, nickname)
+            client.send(Encryption.encrypt(chat_room, ecc_shared_server).encode('utf-8'))
 
-    write_process.start()
-    recieve_messages.start()
+        print(f"\033[K{client.recv(1024).decode('utf-8')}")
 
-    write_process.join()
-    recieve_messages.join()
+        write_process = threading.Thread(target=Chat.send_message, args=(client,))
+        recieve_messages = threading.Thread(target=Chat.recieve_messages, args=(client,))
+
+        write_process.start()
+        recieve_messages.start()
+
+        write_process.join()
+        recieve_messages.join()
+
+        chat_room = ""
 
     exit(0)
