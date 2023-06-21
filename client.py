@@ -123,7 +123,7 @@ class Client_side:
                 char = str(random.randint(0, 10) % 10)
             result += char
         return result
-    
+
     @staticmethod
     def checksum(root, start, end):
         output = 0
