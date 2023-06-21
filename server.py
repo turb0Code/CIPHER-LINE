@@ -1,12 +1,45 @@
 import threading
 import socket
 import time
-from tinyec import registry
 import secrets
-from tinyec import ec
 import sys
-import pymongo
 import signal
+import os
+
+try:
+    from tinyec import ec
+    from tinyec import registry
+    import pymongo
+except ImportError:
+    print("\n" + "-"*20 + "\nLibraries NOT found! \nTry running file like this: 'python3 server.py -setup'" + "\n" + "-"*20 + "\nEXITING...")
+    exit(0)
+
+##############################
+
+class SAFE_ZONE:
+
+    @staticmethod
+    def __get_key(time) -> int:
+        element = time.split('.')[1]
+        random = (int(element[-1]) + int(element[-2]) + int(element[-3]) + int(element[-4]) + int(element[-5])) % 100
+        return random
+
+    @staticmethod
+    def __decrypt(data, key):
+        result = bytes([byte ^ key for byte in bytes.fromhex(data)])
+        return result.hex()
+
+    @staticmethod
+    def auth(data, time):
+        key = SAFE_ZONE.__get_key(time)
+        print(key)
+        print(data)
+        decrypted = SAFE_ZONE.__decrypt(data, key)
+        print(decrypted)
+        if decrypted == "0961a40734b1c31b217f1201aae87e39c09e1c64fd321ebefc198128b272e65e":
+            return True
+        return False # ---COMMENTED---
+        #return True
 
 ##############################
 
@@ -47,7 +80,8 @@ class Database:
 
         COLLECTION = DB["users"]
 
-        print(DB_CLIENT.list_database_names())
+        if len(DB_CLIENT.list_database_names()) > 0:
+            print("Connected with DATABASE...")
 
         return COLLECTION
 
@@ -172,6 +206,9 @@ class Client():
                     except:
                         client.send("//INVALID".encode('utf-8'))
                     continue
+                else:
+                    client.close()
+                    print("CLIENT INPUTED INVALID DATA! - DISCONNECTED")
 
     @staticmethod
     def generate_chat_id(first_user, second_user):
@@ -228,6 +265,13 @@ class Client():
 
             client, addr = server.accept()
 
+            client.send("//AUTH".encode('utf-8'))
+            auth = client.recv(1024).decode('utf-8').split("^^")
+            print(f"AUTH: {auth}")
+            if not SAFE_ZONE.auth(auth[0], auth[1]):
+                client.close()
+                continue
+
             ecc_pv = Encryption.create_pv_key()
             ecc_pb = Encryption.create_pub_key(ecc_pv)
 
@@ -236,7 +280,6 @@ class Client():
             ecc_user_pb = Encryption.force_create_point(int(ecc_user_pb[0]), int(ecc_user_pb[1]))
 
             ecc_shared =  ecc_user_pb * ecc_pv
-            print(f"X: {ecc_shared.x} \nY: {ecc_shared.y}")
 
             if not Client.auth_user(client, addr):
                 continue
@@ -252,6 +295,10 @@ class Client():
             del nickname, client, addr,
             time.sleep(0.5)
 
+    @staticmethod
+    def disconnect(client):
+        pass
+
 ##############################
 
 class Room:
@@ -260,8 +307,9 @@ class Room:
 
     def __init__(self, id):
         self.id = id
+        self.clients = []
 
-    def add_user(self, client):
+    def add_client(self, client):
         self.clients.append(client)
 
     def del_client(self, client):
@@ -282,18 +330,22 @@ class Chat:
     def broadcast(message, chat_id_index):
         print(f'MSG: {message}')
         for client in rooms[chat_id_index].clients:
+            print(f"ROOM: {chat_id_index} : {client.username}")
             client.client.send(message)
 
     @staticmethod
     def chatting(client, nickname):
         while True:
 
-            #chat_id_index = [room.id for room in rooms].index(client.chat_id) ---COMMENTED---
-            chat_id_index = 0
+            chat_id_index = [room.id for room in rooms].index(client.chat_id) # ---COMMENTED---
+            print(chat_id_index)
+            #chat_id_index = 0
 
             try:
                 recieved = client.client.recv(1024)
                 if "//EXIT".encode('utf-8') in recieved:
+                    #client.disconnect(client.client) ---COMMENTED---
+                    Chat.broadcast(f"User {nickname} LEFT CHAT".encode('utf-8'), chat_id_index)
                     client.client.send("//EXIT".encode('utf-8'))
                     rooms[chat_id_index].del_client(client)
                     print(f"User {nickname} left chat.")
@@ -323,24 +375,24 @@ class Chat:
 
             Chat.users.append(new_client)
 
-            indexx = Chat.users.index(new_client)
-
             rooms_ids = [room.id for room in rooms]
 
             if new_client.chat_id in rooms_ids:
                 room = rooms[rooms_ids.index(new_client.chat_id)]
-                room.add_user(new_client)
-                #room_id_index = rooms_ids.index(new_client.chat_id) ---COMMENTED---
-                room_id_index = 0
+                room.add_client(new_client)
+                room_id_index = rooms_ids.index(new_client.chat_id)
+                print(f"OLD ROOM with id: {room_id_index}")
             else:
                 rooms.append(Room(new_client.chat_id))
                 room_id_index = -1
-                rooms[room_id_index].add_user(new_client)
+                rooms[room_id_index].add_client(new_client)
+                print(f"NEW ROOM with id: {room_id_index}")
 
+            print(rooms)
 
             print(f"Connected with {str(addr)} as {nickname} to chat {new_client.chat_id}.")
 
-            chat_id_index = 0
+            chat_id_index = [room.id for room in rooms].index(new_client.chat_id) # ---COMMENTED---
 
             Chat.broadcast(f"{nickname} JOINED CHAT.".encode('utf-8'), chat_id_index)
 
@@ -350,35 +402,49 @@ class Chat:
 
 ##############################
 
+if __name__ == "__main__":
 
-signal.signal(signal.SIGINT, Background.ctrl_c_handler)
-
-ADDRESS = "127.0.0.1"
-PORT = 9999
-
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind((ADDRESS, PORT))
-
-clients = []
-rooms = []
-
-server.listen()
-
-nicknames = []
-thread_pool = []
-
-print(r"""
-__  _   ___  ___    __  _ _   _  ___    _   ___ ___
+    print(r"""
+ __  _   ___  ___    __  _ _   _  ___    _   ___ ___
 / _|/ \ | __|| __|  / _|| U | / \|_ _|  / \ | o \ o \
 \_ \ o || _| | _|  ( (_ |   || o || |  | o ||  _/  _/
 |__/_n_||_|  |___|  \__||_n_||_n_||_|  |_n_||_| |_|
-__  ___  ___ _ _  ___  ___
+ __  ___  ___ _ _  ___  ___
 / _|| __|| o \ | || __|| o \
 \_ \| _| |   / V || _| |   /
 |__/|___||_|\\\_/ |___||_|\\
 """)
 
-print("-"*20)
-print("Running server...")
 
-Client.connect()
+    signal.signal(signal.SIGINT, Background.ctrl_c_handler)
+
+    ADDRESS = "127.0.0.1"
+    PORT = 9999
+
+    if len(sys.argv) > 1 and sys.argv[1] == "-setup":
+        print("\n" + "-"*20 + "\nSETUP STARTED")
+        os.system("pip3 install pymongo")
+        os.system("pip3 install tinyec")
+        print("\n" + "-"*20 + "\nCONFIGURATION")
+        print("SPECIFY SERVER ADRESS (default is 127.0.0.1): ")
+        ADDRESS = input(str("> "))
+        print("SPECIFY SERVER PORT (default is 9999): ")
+        PORT = int(input(str("> ")))
+        print("\n" + "-"*20 + "\nDONE...")
+        pass
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind((ADDRESS, PORT))
+
+    clients = []
+    rooms = []
+
+    server.listen()
+
+    nicknames = []
+    thread_pool = []
+
+    print("-"*20)
+    print("Running server...")
+
+    Client.connect()

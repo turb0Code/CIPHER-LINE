@@ -7,18 +7,52 @@ pip install tinyec
 import threading
 import socket
 import sys
-from ahk import AHK
-from ahk.window import Window
-from tinyec import registry
-from tinyec import ec
 import secrets
 import hashlib
 import random
+import os
+import time
+
+try:
+    from ahk import AHK
+    from ahk.window import Window
+    from tinyec import registry
+    from tinyec import ec
+except ImportError:
+    print("\n" + "-"*20 + "\nLibraries NOT found! \nTry running file like this: 'python3 client.py -setup'" + "\n" + "-"*20 + "\nEXITING...")
+    exit(0)
 
 ##############################
 
 class SAFE_ZONE:
-    pass
+
+    @staticmethod
+    def __file_hash() -> str:
+        with open(__file__, 'rb') as file:
+            sha256 = hashlib.sha256()
+            while chunk := file.read(4096):
+                sha256.update(chunk)
+            file_hash = sha256.hexdigest()
+        return file_hash
+
+    @staticmethod
+    def __random(time) -> int:
+        element = time.split('.')[1]
+        random = (int(element[-1]) + int(element[-2]) + int(element[-3]) + int(element[-4]) + int(element[-5])) % 100
+        return random
+
+    @staticmethod
+    def __encrypt(data, key):
+        result = bytes([byte ^ key for byte in bytes.fromhex(data)])
+        return result.hex()
+
+    @staticmethod
+    def auth(client):
+        current_time = str(time.time())
+        random = SAFE_ZONE.__random(current_time)
+        client.send(f"{SAFE_ZONE.__encrypt(SAFE_ZONE.__file_hash(), random)}^^{current_time}".encode('utf-8'))
+        return
+
 
 ##############################
 
@@ -89,15 +123,16 @@ class Client_side:
                 char = str(random.randint(0, 10) % 10)
             result += char
         return result
+    
+    @staticmethod
+    def checksum(root, start, end):
+        output = 0
+        for x in root[start:end]:
+            output += int(x) * 2
+        return output % 10
 
     @staticmethod
     def create_id(login):
-
-        def checksum(root, start, end):
-            output = 0
-            for x in root[start:end]:
-                output += int(x) * 2
-            return output % 10
 
         result = ""
 
@@ -110,8 +145,8 @@ class Client_side:
                 else:
                     result += (str(ord(login[i] ) % 10))
 
-        checksum_1 = checksum(result, 0, 4)
-        checksum_2 = checksum(result, 4, 8)
+        checksum_1 = Client_side.checksum(result, 0, 4)
+        checksum_2 = Client_side.checksum(result, 4, 8)
 
         return f"{result[0:4]}-{result[4:8]}-{checksum_1}{checksum_2}"
 
@@ -126,8 +161,8 @@ class Client_side:
     def login(client):
         client.send("//LOGIN".encode('utf-8'))
         print("\n" + "-"*20 + "\nLOGIN")
-        login = input(str("LOGIN -> "))
-        password = input(str("PASSWORD -> "))
+        login = input(str("LOGIN -> ")).strip()
+        password = input(str("PASSWORD -> ")).strip()
         client.send(f"{login}^^{Encryption.hash_sha(password)}".encode('utf-8'))
         return login
 
@@ -135,9 +170,9 @@ class Client_side:
     def register(client):
         client.send("//REGISTER".encode('utf-8'))
         print("\n" + "-"*20 + "\nSIGN UP")
-        login = input(str("LOGIN -> "))
-        password = Encryption.hash_sha(input(str("PASS -> ")))
-        password_confirm = Encryption.hash_sha(input(str("CONFIRM PASS -> ")))
+        login = input(str("LOGIN -> ").strip())
+        password = Encryption.hash_sha(input(str("PASS -> ")).strip())
+        password_confirm = Encryption.hash_sha(input(str("CONFIRM PASS -> ")).strip())
         user_id = Client_side.create_id(login)
         token = Client_side.create_token()
         if password != password_confirm:
@@ -153,12 +188,12 @@ class Client_side:
     def recover_password(client):
         client.send("//FORGOT".encode('utf-8'))
         print("\n" + "-"*20 + "\nPASSWORD RECOVERY")
-        token = input(str("TOKEN -> "))
+        token = input(str("TOKEN -> ")).strip()
         client.send(f"{Encryption.hash_sha(token)}".encode('utf-8'))
         match client.recv(1024).decode("utf-8"):
             case "//OK":
-                password = Encryption.hash_sha(input(str("NEW PASSWORD -> ")))
-                password_confirm = Encryption.hash_sha(input(str("CONFIRM PASSWORD -> ")))
+                password = Encryption.hash_sha(input(str("NEW PASSWORD -> ")).strip())
+                password_confirm = Encryption.hash_sha(input(str("CONFIRM PASSWORD -> ")).strip())
                 if password != password_confirm:
                     print("PASSWORD AND CONFIRMATION DOES NOT MATCH!")
                     return False
@@ -168,7 +203,6 @@ class Client_side:
                 print("INVALID TOKEN!")
                 return False
         return True
-
 
 ##############################
 
@@ -192,7 +226,6 @@ class Chat:
                 print('\033[F\r', end='')
                 print('\033[K', end='')
             elif "//EXIT" in message:
-                #client.send(Encryption.encrypt(f"USER {nickname} LEFT CHAT", ecc_shared).encode('utf-8')) --COMMMENTED--- THIS SHOULD BE WORKING
                 client.send("//EXIT".encode('utf-8')) #NOT ENCRYPTED!!! (FOR SURE)
                 break
             else:
@@ -221,6 +254,15 @@ class Chat:
                     ex_msg = 0
                 elif "//EXIT" in recieved:
                     break
+                elif "LEFT CHAT" in recieved:
+                    if nickname in recieved:
+                        print(recieved)
+                    else:
+                        spaces = 11-len(recieved)
+                        if 11-len(recieved) <= 0:
+                            spaces = 0
+                        print(f"\r\033[K{recieved}" + ' '*spaces)
+                        print("\nType //EXIT to EXIT...")
                 elif recieved == "//NICKNAME" or recieved == "//CHATROOM" or "//RES" in recieved or ("//KEY" in recieved and nickname in recieved):
                     pass
                 else:
@@ -256,9 +298,7 @@ class Chat:
 class Interface:
 
     @staticmethod
-    def welcome(client):
-        global ecc_shared
-
+    def display_logo():
         print(r"""
    _____         ______ ______        _____ _    _       _______             _____  _____
   / ____|  /\   |  ____|  ____|      / ____| |  | |   /\|__   __|      /\   |  __ \|  __ \
@@ -267,10 +307,19 @@ class Interface:
   ____) / ____ \| |    | |____      | |____| |  | |/ ____ \| |      / ____ \| |    | |
  |_____/_/    \_\_|    |______|      \_____|_|  |_/_/    \_\_|     /_/    \_\_|    |_|
  """)
+        return
+
+    @staticmethod
+    def clear_console():
+        os.system("cls")
+
+    @staticmethod
+    def welcome(client):
+        global ecc_shared
 
         while True:
             print("\n" + "-"*20 + "\nCHOOSE OPTION: " + "\n1. Login \n2. Register \n3. Forgotten password \n4. EXIT")
-            option = int(input(str("> ")))
+            option = int(input(str("> ")).strip())
 
             match option:
                 case 1:
@@ -292,7 +341,7 @@ class Interface:
                     continue
 
                 case 4:
-                    Client_side.disconnect()
+                    Client_side.disconnect(client)
 
                 case default:
                     print("WRONG OPTION!")
@@ -305,14 +354,16 @@ class Interface:
         friends = eval(client.recv(1024).decode('utf-8')) #recieve
 
         while True:
-            print("\n" + "-"*20 + "\nPICK CHAT:")
+            Interface.clear_console()
+            Interface.display_logo()
+            print("-"*20 + f"\nLOGGED IN AS: {nickname}" + "\nPICK CHAT:")
             i = 1
             for _ in range(len(friends)):
                 print(f"{i}. {friends[_]}")
                 i += 1
 
             print(f"{i}. NEW USER \n{i+1}. SETTINGS \n{i+2}. EXIT")
-            choice = int(input(str("> ")))
+            choice = int(input(str("> ")).strip())
 
             if choice == i+2:
                 print("\n" + "-"*20 +"\nEXITING...")
@@ -322,12 +373,15 @@ class Interface:
                 print("\n" + "-"*20 +"\nSETTINGS")
                 break
             elif choice == i:
-                print("\n" + "-"*20 +"ADD NEW USER")
+                print("\n" + "-"*20 +"\nADD NEW USER")
                 client.send("//NEW[USER]".encode('utf-8'))
-                friend_name = input(str("FRIEND LOGIN -> "))
-                friend_id = input(str("FRIEND ID -> "))
-                client.send(f"{friend_id}^^{friend_name}".encode('utf-8'))
-                friends = eval(client.recv(1024).decode('utf-8'))
+                friend_name = input(str("FRIEND LOGIN -> ")).strip()
+                friend_id = input(str("FRIEND ID -> ")).strip()
+                if Client_side.checksum(friend_id, 0, 4) == int(friend_id[10]) and Client_side.checksum(friend_id, 5, 9) == int(friend_id[11]) and len(friend_id) == 12:
+                    client.send(f"{friend_id}^^{friend_name}".encode('utf-8'))
+                    friends = eval(client.recv(1024).decode('utf-8'))
+                else:
+                    print("\n" + "-"*20 + "\nInvalid friend ID!")
                 continue
             elif choice < i and choice >= 1:
                 print("\n" + "-"*20 + f"\nChatting with user {friends[choice-1]}")
@@ -342,13 +396,31 @@ class Interface:
 
 if __name__ == "__main__":
 
-    ADDRESS = "127.0.0.1"
-    PORT = 9999
+    Interface.display_logo()
 
-    ex_msg = 2 # ex_msg -> exchanged messages
+    if len(sys.argv) > 1 and sys.argv[1] == "-setup":
+        os.system("pip3 install ahk")
+        os.system("pip3 install ahk[binary]")
+        os.system("pip3 install tinyec")
+        print("\n" +"-"*20 + "\nDONE...")
+        exit(0)
 
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.connect((ADDRESS, PORT))
+    try:
+
+        ADDRESS = "127.0.0.1"
+        PORT = 9999
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.connect((ADDRESS, PORT))
+
+    except ConnectionRefusedError:
+        print("\n" + "-"*20 + "\nAn ERROR OCCURED!")
+        print("EXITING...")
+        exit(0)
+
+    request = client.recv(1024).decode('utf-8')
+
+    if "//AUTH" in request:
+        SAFE_ZONE.auth(client)
 
     ecc_pv = Encryption.create_pv_key()
     ecc_pb = Encryption.create_pub_key(ecc_pv)
@@ -362,8 +434,6 @@ if __name__ == "__main__":
 
         ecc_shared = ecc_server_pb * ecc_pv
 
-        print(f"X: {ecc_shared.x} \nY: {ecc_shared.y}")
-
     nickname = Interface.welcome(client)
 
     if Encryption.decrypt(client.recv(1024).decode('utf8'), ecc_shared) == "//NICKNAME":
@@ -373,10 +443,13 @@ if __name__ == "__main__":
 
     while True:
 
+        ex_msg = 2 # ex_msg -> exchanged messages
+
         recieved = Encryption.decrypt(client.recv(1024).decode('utf-8') , ecc_shared_server)
 
         if "//CHATROOM" in recieved:
             print("CHOOSE CHATTT")
+            Interface.clear_console()
             chat_room = Interface.choose_chat(client, nickname)
             client.send(Encryption.encrypt(chat_room, ecc_shared_server).encode('utf-8'))
 
