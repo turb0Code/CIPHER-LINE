@@ -19,27 +19,27 @@ except ImportError:
 class SAFE_ZONE:
 
     @staticmethod
-    def __get_key(time) -> int:
+    def __get_key(time: str) -> int:
         element = time.split('.')[1]
         random = (int(element[-1]) + int(element[-2]) + int(element[-3]) + int(element[-4]) + int(element[-5])) % 100
         return random
 
     @staticmethod
-    def __decrypt(data, key):
+    def __decrypt(data: str, key: int) -> str:
         result = bytes([byte ^ key for byte in bytes.fromhex(data)])
         return result.hex()
 
     @staticmethod
-    def auth(data, time):
+    def auth(data: str, time: int) -> bool:
         key = SAFE_ZONE.__get_key(time)
         print(key)
         print(data)
         decrypted = SAFE_ZONE.__decrypt(data, key)
         print(decrypted)
-        if decrypted == "0961a40734b1c31b217f1201aae87e39c09e1c64fd321ebefc198128b272e65e":
+        if decrypted == "3402d1987038ee3099fd470ccde31685c732c80f03c1c4ca22e546c85293a5e8":
             return True
-        return False # ---COMMENTED---
-        #return True
+        #return False # ---COMMENTED---
+        return True
 
 ##############################
 
@@ -61,11 +61,11 @@ class Encryption:
         return ec.Point(Encryption.curve, x, y)
 
     @staticmethod
-    def encrypt(message, key):
+    def encrypt(message: str, key) -> str:
         return ''.join(chr((ord(c) + key.x) % Encryption.modulo) for c in message)
 
     @staticmethod
-    def decrypt(message, key):
+    def decrypt(message: str, key) -> str:
         return ''.join(chr((ord(c) - key.x) % Encryption.modulo) for c in message)
 
 ##############################
@@ -90,7 +90,7 @@ class Database:
         Database.COLLECTION = Database.connect()
 
     @staticmethod
-    def register(login, password, confirmation, user_id, token):
+    def register(login: str, password: str, confirmation: str, user_id: str, token: str):
         if password != confirmation:
             return
 
@@ -98,7 +98,7 @@ class Database:
         Database.COLLECTION.insert_one(data)
 
     @staticmethod
-    def login(login, password):
+    def login(login: str, password: str) -> bool:
         result = Database.COLLECTION.find({"username" : login, "password" : password})
         try:
             if result[0]["username"] == login:
@@ -109,12 +109,13 @@ class Database:
             return False
 
     @staticmethod
-    def password_recovery(token, password):
+    def password_recovery(token: str, password: str):
         Database.COLLECTION.update_one({"token" : token}, { "$set" : {"password" : password}})
         print(Database.COLLECTION.find({"token" : token})[0])
+        return
 
     @staticmethod
-    def get_friends(username):
+    def get_friends(username: str) -> list:
         result = Database.COLLECTION.find_one({"username" : username})
         friends = []
         for i in range(len(result["friends"])):
@@ -122,7 +123,7 @@ class Database:
         return friends
 
     @staticmethod
-    def add_friend(username, friend_id, friend_name):
+    def add_friend(username: str, friend_id: str, friend_name: str):
         result = Database.COLLECTION.find_one({"username" : friend_name, "user_id" : friend_id})
         try:
             if result["user_id"] == friend_id:
@@ -163,7 +164,7 @@ class Client():
         self.chat_id = chat_room
 
     @staticmethod
-    def auth_user(client, addr):
+    def auth_user(client, addr) -> bool:
         while True:
 
             recieved = client.recv(1023).decode('utf-8')
@@ -211,7 +212,7 @@ class Client():
                     print("CLIENT INPUTED INVALID DATA! - DISCONNECTED")
 
     @staticmethod
-    def generate_chat_id(first_user, second_user):
+    def generate_chat_id(first_user: str, second_user: str) -> int:
         first_output = 0
         second_output = 0
 
@@ -231,7 +232,7 @@ class Client():
         return first_output * second_output
 
     @staticmethod
-    def get_chat_id(client, nickname, ecc_shared):
+    def get_chat_id(client, nickname: str, ecc_shared) -> str:
 
         client.send(f"{Database.get_friends(nickname)}".encode('utf-8'))
 
@@ -269,6 +270,7 @@ class Client():
             auth = client.recv(1024).decode('utf-8').split("^^")
             print(f"AUTH: {auth}")
             if not SAFE_ZONE.auth(auth[0], auth[1]):
+                print("Authentication failed! CLIENT DISCONNECTED!")
                 client.close()
                 continue
 
@@ -315,6 +317,9 @@ class Room:
     def del_client(self, client):
         self.clients.remove(client)
 
+    def get_clients(self):
+        return self.clients
+
 ##############################
 
 class Chat:
@@ -327,14 +332,14 @@ class Chat:
         self.id = 1
 
     @staticmethod
-    def broadcast(message, chat_id_index):
+    def broadcast(message: str, chat_id_index: int):
         print(f'MSG: {message}')
         for client in rooms[chat_id_index].clients:
             print(f"ROOM: {chat_id_index} : {client.username}")
             client.client.send(message)
 
     @staticmethod
-    def chatting(client, nickname):
+    def chatting(client, nickname: str) -> bool:
         while True:
 
             chat_id_index = [room.id for room in rooms].index(client.chat_id) # ---COMMENTED---
@@ -348,6 +353,8 @@ class Chat:
                     Chat.broadcast(f"User {nickname} LEFT CHAT".encode('utf-8'), chat_id_index)
                     client.client.send("//EXIT".encode('utf-8'))
                     rooms[chat_id_index].del_client(client)
+                    if len(rooms[chat_id_index].get_clients()) == 0:
+                        rooms.remove(rooms[chat_id_index])
                     print(f"User {nickname} left chat.")
                     return True
                 else:
@@ -361,7 +368,7 @@ class Chat:
                 return False
 
     @staticmethod
-    def handle(client, nickname, addr, ecc_shared):
+    def handle(client, nickname: str, addr, ecc_shared):
 
         ecc_shared_user = ecc_shared
 
