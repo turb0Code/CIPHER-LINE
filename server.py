@@ -34,10 +34,10 @@ class SAFE_ZONE:
     def auth(data: str, time: int) -> bool:
         key = SAFE_ZONE.__get_key(time)
         decrypted = SAFE_ZONE.__decrypt(data, key)
-        if decrypted == "3402d1987038ee3099fd470ccde31685c732c80f03c1c4ca22e546c85293a5e8":
+        if decrypted == "41900c890bafdf402673459a89ef582b67caea2d97afd3de711b3a2c661721c7":
             return True
-        #return False # ---COMMENTED---
-        return True
+        return False # ---COMMENTED---
+        #return True
 
 ##############################
 
