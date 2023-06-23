@@ -18,6 +18,7 @@ try:
     from ahk.window import Window
     from tinyec import registry
     from tinyec import ec
+    from dotenv import dotenv_values, set_key, unset_key
 except ImportError:
     print("\n" + "-"*20 + "\nLibraries NOT found! \nTry running file like this: 'python3 client.py -setup'" + "\n" + "-"*20 + "\nEXITING...")
     exit(0)
@@ -85,7 +86,7 @@ class Encryption:
         ecc_pv = Encryption.create_pv_key()
         ecc_pb = Encryption.create_pub_key(ecc_pv)
         Chat.send(client, f"//KEY[{nickname}]->{ecc_pb.x},{ecc_pb.y}")
-        ecc_user_pb = client.recv(1024).decode('utf-8').split("->")[1].split(",")
+        ecc_user_pb = Chat.receive(client).split("->")[1].split(",")
         ecc_user_pb = Encryption.force_create_point(int(ecc_user_pb[0]), int(ecc_user_pb[1]))
         ecc_shared = ecc_pv * ecc_user_pb
         return ecc_shared
@@ -162,7 +163,7 @@ class Client_side:
         print("\n" + "-"*20 + "\nLOGIN")
         login = input(str("LOGIN -> ")).strip()
         password = input(str("PASSWORD -> ")).strip()
-        client.send(f"{login}^^{Encryption.hash_sha(password)}".encode('utf-8'))
+        Chat.send(client, f"{login}^^{Encryption.hash_sha(password)}")
         return login
 
     @staticmethod
@@ -176,7 +177,7 @@ class Client_side:
         token = Client_side.create_token()
         if password != password_confirm:
             print("PASSWORD AND CONFIRMATION DOES NOT MATCH!")
-            client.send(f"//ERROR".encode('utf-8'))
+            Chat.send(client, "//ERROR")
             return ""
         else:
             Chat.send(client, f"{login}^^{password}^^{password_confirm}^^{user_id}^^{Encryption.hash_sha(token)}")
@@ -189,7 +190,7 @@ class Client_side:
         print("\n" + "-"*20 + "\nPASSWORD RECOVERY")
         token = input(str("TOKEN -> ")).strip()
         Chat.send(client, f"{Encryption.hash_sha(token)}")
-        match client.recv(1024).decode("utf-8"):
+        match Chat.recieve(client):
             case "//OK":
                 password = Encryption.hash_sha(input(str("NEW PASSWORD -> ")).strip())
                 password_confirm = Encryption.hash_sha(input(str("CONFIRM PASSWORD -> ")).strip())
@@ -221,13 +222,30 @@ class Chat:
                 client.send(Encryption.encrypt(message, ecc_shared).encode('utf-8'))
             else:
                 client.send(message.encode('utf-8'))
+
+        except ConnectionError:
+            print("\n" + "-"*20 + f"\nAn connection ERROR OCCURED")
+            exit(0)
+
         except Exception as e:
             print("\n" + "-"*20 + f"\nAn ERROR OCCURED - {e}")
             Client_side.disconnect(client)
 
     @staticmethod
-    def receive(client):
-        pass
+    def receive(client, encrypted=False, ecc_shared="") -> str:
+        try:
+            if encrypted:
+                return Encryption.decrypt(client.recv(1024).decode('utf-8'), ecc_shared)
+            else:
+                return client.recv(1024).decode('utf-8')
+        except  ConnectionError:
+            print("\n" + "-"*20 + f"\nAn connection ERROR OCCURED")
+            exit(0)
+            return ""
+        except Exception as e:
+            print("\n" + "-"*20 + f"\nAn ERROR OCCURED - {e}")
+            Client_side.disconnect(client)
+            return ""
 
     @staticmethod
     def send_message(client):
@@ -249,7 +267,6 @@ class Chat:
 
                 if '\uCBA0\uCBBC\uCC9F\uCD95\uCDB7\uCE8C\uCF97\uCFA1' in message:
                     print('\033[F\r', end='')
-                    #print('\033[F\r', end='')
                     print('\033[K', end='')
                 elif "//EXIT" in message:
                     Chat.send(client, "//EXIT") #NOT ENCRYPTED!!!! (FOR SURE)
@@ -276,7 +293,7 @@ class Chat:
         try:
             while True:
                 try:
-                    recieved = client.recv(1024).decode('utf-8')
+                    recieved = Chat.receive(client)
 
                     if "//KEY" in recieved and nickname not in recieved:
                         ecc_client_pb = recieved.split("->")[1].split(",")
@@ -370,7 +387,7 @@ class Interface:
             match option:
                 case 1:
                     login = Client_side.login(client)
-                    if client.recv(1024).decode('utf-8') == "//OK":
+                    if Chat.receive(client) == "//OK":
                         break
                     else:
                         print("INVALID LOGIN OR PASSWORD!")
@@ -397,7 +414,7 @@ class Interface:
     @staticmethod
     def choose_chat(client, nickname: str) -> str:
 
-        friends = eval(client.recv(1024).decode('utf-8'))
+        friends = eval(Chat.receive(client))
 
         while True:
             Interface.clear_console()
@@ -434,7 +451,7 @@ class Interface:
                 friend_id = input(str("FRIEND ID -> ")).strip()
                 if Client_side.checksum(friend_id, 0, 4) == int(friend_id[10]) and Client_side.checksum(friend_id, 5, 9) == int(friend_id[11]) and len(friend_id) == 12:
                     Chat.send(client, f"{friend_id}^^{friend_name}")
-                    friends = eval(client.recv(1024).decode('utf-8'))
+                    friends = eval(Chat.receive(client))
                 else:
                     print("\n" + "-"*20 + "\nInvalid friend ID!")
                 continue
@@ -454,10 +471,31 @@ if __name__ == "__main__":
     Interface.display_logo()
 
     try:
+        config = dotenv_values("client.env")
+
+    except FileNotFoundError:
+        print("\n" + "-"*20 + f"\nCONFIG file client.env NOT FOUND \nTry running 'python client.py -setup'")
+        exit(0)
+
+    try:
         if len(sys.argv) > 1 and sys.argv[1] == "-setup":
             os.system("pip3 install ahk")
             os.system("pip3 install ahk[binary]")
             os.system("pip3 install tinyec")
+            os.system("pip3 install python-dotenv")
+            print("\n" + "-"*20 + "\nCLIENT CONFIGURATION: ")
+            try:
+                config = dotenv_values("client.env")
+
+            except FileNotFoundError:
+                with open("client.env") as config:
+                    pass
+            print("PLEASE SPECIFY CONNECTION ADDRESS")
+            ADDRESS = input(str("> "))
+            set_key("client.env", "ADDRESS", ADDRESS)
+            print("PLEASE SPECIFY CONNECTION PORT")
+            PORT = input(str("> "))
+            set_key("client.env", "PORT", PORT)
             print("\n" +"-"*20 + "\nDONE...")
             exit(0)
 
@@ -467,8 +505,15 @@ if __name__ == "__main__":
         exit(0)
 
     try:
-        ADDRESS = "127.0.0.1"
-        PORT = 9999
+        config = dotenv_values("client.env")
+
+    except FileNotFoundError:
+        print("\n" + "-"*20 + f"\nCONFIG file client.env NOT FOUND \nTry running 'python client.py -setup'")
+        exit(0)
+
+    try:
+        ADDRESS = config["ADDRESS"]
+        PORT = int(config["PORT"])
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.connect((ADDRESS, PORT))
 
@@ -480,7 +525,7 @@ if __name__ == "__main__":
         print("\n" + "-"*20 + f"\nAn ERROR OCCURED! - {e}")
         Client_side.disconnect(client)
 
-    request = client.recv(1024).decode('utf-8')
+    request = Chat.receive(client)
 
     if "//AUTH" in request:
         SAFE_ZONE.auth(client)
@@ -488,7 +533,7 @@ if __name__ == "__main__":
     ecc_pv = Encryption.create_pv_key()
     ecc_pb = Encryption.create_pub_key(ecc_pv)
 
-    request = client.recv(1024).decode('utf8')
+    request = Chat.receive(client)
 
     if "//KEY" in request:
         ecc_server_pb = request.split("->")[1].split(",")
@@ -497,10 +542,27 @@ if __name__ == "__main__":
 
         ecc_shared = ecc_server_pb * ecc_pv
 
-    nickname = Interface.welcome(client)
+    request = Chat.receive(client, True, ecc_shared)
 
-    if Encryption.decrypt(client.recv(1024).decode('utf8'), ecc_shared) == "//NICKNAME":
+    if "//PASSWORD" in request:
+        print("\n" + "-"*20 + "\nThis server demands PASSWORD!")
+        password = input(str("PASS: ")).strip()
+        Chat.send(client, password, True, ecc_shared)
+        request = Chat.receive(client, True, ecc_shared)
+        if request == "//ERROR":
+            print("PASSWORD IS INCORRECT!")
+            Client_side.disconnect(client)
+        elif request == "//NICKNAME":
+            nickname = Interface.welcome(client)
+            Chat.send(client, nickname, True, ecc_shared)
+    elif request == "//NICKNAME":
+        nickname = Interface.welcome(client)
         Chat.send(client, nickname, True, ecc_shared)
+
+
+    # if Chat.receive(client, True, ecc_shared) == "//NICKNAME":
+    #     nickname = Interface.welcome(client)
+    #     Chat.send(client, nickname, True, ecc_shared)
 
     ecc_shared_server = ecc_shared
 
@@ -509,7 +571,7 @@ if __name__ == "__main__":
 
             ex_msg = 2 # ex_msg -> exchanged messages
 
-            recieved = Encryption.decrypt(client.recv(1024).decode('utf-8') , ecc_shared_server)
+            recieved = Chat.receive(client, True, ecc_shared_server)
 
             if "//CHATROOM" in recieved:
                 print("CHOOSE CHATTT")

@@ -10,6 +10,7 @@ try:
     from tinyec import ec
     from tinyec import registry
     import pymongo
+    from dotenv import dotenv_values, set_key, unset_key
 except ImportError:
     print("\n" + "-"*20 + "\nLibraries NOT found! \nTry running file like this: 'python3 server.py -setup'" + "\n" + "-"*20 + "\nEXITING...")
     exit(0)
@@ -283,10 +284,17 @@ class Client():
 
             ecc_shared =  ecc_user_pb * ecc_pv
 
-            if not Client.auth_user(client, addr):
-                continue
+            if config["PROTECTED"] == "true":
+                client.send(Encryption.encrypt("//PASSWORD", ecc_shared).encode('utf-8'))
+                password = Encryption.decrypt(client.recv(1024).decode('utf-8'), ecc_shared)
+                if password != config["PASSWORD"]:
+                    client.send(Encryption.encrypt("//ERROR", ecc_shared).encode('utf-8'))
+                    client.close()
+                    continue
 
             client.send(Encryption.encrypt("//NICKNAME", ecc_shared).encode('utf-8'))
+            if not Client.auth_user(client, addr):
+                continue
             nickname = Encryption.decrypt(client.recv(1024).decode('utf-8'), ecc_shared)
             nicknames.append(nickname)
 
@@ -425,20 +433,43 @@ if __name__ == "__main__":
 
     signal.signal(signal.SIGINT, Background.ctrl_c_handler)
 
-    ADDRESS = "127.0.0.1"
-    PORT = 9999
-
     if len(sys.argv) > 1 and sys.argv[1] == "-setup":
         print("\n" + "-"*20 + "\nSETUP STARTED")
         os.system("pip3 install pymongo")
         os.system("pip3 install tinyec")
-        print("\n" + "-"*20 + "\nCONFIGURATION")
-        print("SPECIFY SERVER ADRESS (default is 127.0.0.1): ")
+        os.system("pip3 install python-dotenv")
+        print("\n" + "-"*20 + "\nSERVER CONFIGURATION")
+        try:
+            config = dotenv_values("server.env")
+
+        except FileNotFoundError:
+            with open("server.env") as config:
+                pass
+        print("SPECIFY SERVER ADRESS: ")
         ADDRESS = input(str("> "))
-        print("SPECIFY SERVER PORT (default is 9999): ")
-        PORT = int(input(str("> ")))
+        set_key("server.env", "ADDRESS", ADDRESS)
+        print("SPECIFY SERVER PORT: ")
+        PORT = input(str("> "))
+        set_key("server.env", "PORT", PORT)
+        print("SPECIFY SERVER PASSWORD: (press ENTER to SKIP without PASSWORD)")
+        PASSWORD = input(str("> "))
+        if PASSWORD == "":
+            set_key("server.env", "PROTECTED", "false")
+        else:
+            set_key("server.env", "PROTECTED", "true")
+            set_key("server.env", "PASSWORD", PASSWORD)
         print("\n" + "-"*20 + "\nDONE...")
-        pass
+        exit(0)
+
+    try:
+        config = dotenv_values("server.env")
+
+    except FileNotFoundError:
+        print("\n" + "-"*20 + f"\nCONFIG file server.env NOT FOUND \nTry running 'python server.py -setup'")
+        exit(0)
+
+    ADDRESS = config["ADDRESS"]
+    PORT = int(config["PORT"])
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((ADDRESS, PORT))
