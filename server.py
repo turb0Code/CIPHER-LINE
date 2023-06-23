@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import threading
 import socket
 import time
@@ -34,10 +33,7 @@ class SAFE_ZONE:
     @staticmethod
     def auth(data: str, time: int) -> bool:
         key = SAFE_ZONE.__get_key(time)
-        print(key)
-        print(data)
         decrypted = SAFE_ZONE.__decrypt(data, key)
-        print(decrypted)
         if decrypted == "3402d1987038ee3099fd470ccde31685c732c80f03c1c4ca22e546c85293a5e8":
             return True
         #return False # ---COMMENTED---
@@ -257,7 +253,7 @@ class Client():
                 chat_id = Client.generate_chat_id(nickname, recieved)
                 return chat_id
             else:
-                client.close() # TODO: kick out client
+                client.close()
                 return ""
 
     @staticmethod
@@ -342,23 +338,18 @@ class Chat:
 
     @staticmethod
     def broadcast(message: str, chat_id_index: int):
-        print(f'MSG: {message}')
         for client in rooms[chat_id_index].clients:
-            print(f"ROOM: {chat_id_index} : {client.username}")
             client.client.send(message)
 
     @staticmethod
     def chatting(client, nickname: str) -> bool:
         while True:
 
-            chat_id_index = [room.id for room in rooms].index(client.chat_id) # ---COMMENTED---
-            print(chat_id_index)
-            #chat_id_index = 0
+            chat_id_index = [room.id for room in rooms].index(client.chat_id)
 
             try:
                 recieved = client.client.recv(1024)
                 if "//EXIT".encode('utf-8') in recieved:
-                    #client.disconnect(client.client) ---COMMENTED---
                     Chat.broadcast(f"User {nickname} LEFT CHAT".encode('utf-8'), chat_id_index)
                     client.client.send("//EXIT".encode('utf-8'))
                     rooms[chat_id_index].del_client(client)
@@ -397,14 +388,10 @@ class Chat:
                 room = rooms[rooms_ids.index(new_client.chat_id)]
                 room.add_client(new_client)
                 room_id_index = rooms_ids.index(new_client.chat_id)
-                print(f"OLD ROOM with id: {room_id_index}")
             else:
                 rooms.append(Room(new_client.chat_id))
                 room_id_index = -1
                 rooms[room_id_index].add_client(new_client)
-                print(f"NEW ROOM with id: {room_id_index}")
-
-            print(rooms)
 
             print(f"Connected with {str(addr)} as {nickname} to chat {new_client.chat_id}.")
 
@@ -487,62 +474,3 @@ if __name__ == "__main__":
     print("Running server...")
 
     Client.connect()
-=======
-import threading
-import socket
-
-ADDRESS = "127.0.0.1"
-PORT = 9999
-
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind((ADDRESS, PORT))
-
-server.listen()
-
-clients = []
-nicknames = []
-
-def broadcast(message):
-    for client in clients:
-        client.send(message)
-
-def handle(client):
-    indexx = clients.index(client)
-    nickname = nicknames[indexx]
-    while True:
-        try:
-            recieved = client.recv(1024)
-            if recieved == "QUIT".encode('utf-8'):
-                clients.remove(client)
-                client.close()
-                nicknames.remove(nickname)
-                broadcast(f"{nickname} LEFT CHAT".encode('utf-8'))
-                break
-            else:
-                broadcast(recieved)
-        except:
-            clients.remove(client)
-            client.close()
-            nicknames.remove(nickname)
-            broadcast(f"{nickname} LEFT CHAT".encode('utf-8'))
-            break
-
-def connect():
-    while True:
-        client, addr = server.accept()
-        client.send(f"//NICKNAME".encode('utf-8'))
-        nickname = client.recv(1024).decode('utf-8')
-        nicknames.append(nickname)
-        clients.append(client)
-
-        print(f"Connected with {str(addr)} as {nickname}.")
-
-        broadcast(f"{nickname} JOINED CHAT".encode('utf-8'))
-
-        thread = threading.Thread(target=handle, args=(client,))
-        thread.start()
-
-print("-"*20)
-print("Running server...")
-connect()
->>>>>>> 5c92309275cfe3c97efabcc32b0727528a95d325
