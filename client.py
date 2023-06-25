@@ -474,12 +474,12 @@ if __name__ == "__main__":
 
     Interface.display_logo()
 
-    try:
-        config = dotenv_values("client.env")
+    # try:
+    #     config = dotenv_values("client.env")
 
-    except FileNotFoundError:
-        print("\n" + "-"*20 + f"\nCONFIG file client.env NOT FOUND \nTry running 'python client.py -setup'")
-        exit(0)
+    # except:
+    #     print("\n" + "-"*20 + f"\nCONFIG file client.env NOT FOUND \nTry running 'python client.py -setup'")
+    #     exit(0)
 
     try:
         if len(sys.argv) > 1 and sys.argv[1] == "-setup":
