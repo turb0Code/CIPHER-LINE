@@ -1,4 +1,4 @@
-<!-- <img src="https://raw.githubusercontent.com/CIPHER-LINE/main/ExtraResources/cipher-line.png"/> -->
+<img src="https://raw.githubusercontent.com/turb0Code/CIPHER-LINE/main/ExtraResources/cipher-line.png"/>
 
 ## INTRODUCTION
 > *CPIHER-LINE* IS STILL IN DEVELOPMENT
