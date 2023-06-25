@@ -45,9 +45,9 @@ python3 client.py
 
 ## PRIVACY
 
-*CIPHER-LINE*/ does not store your IP address or any other sensitive data in the database. It only saves essential information such as login credentials, hashed passwords, and hashed recovery tokens to provide the best user experience while prioritizing your privacy.
+*CIPHER-LINE* does not store your IP address or any other sensitive data in the database. It only saves essential information such as login credentials, hashed passwords, and hashed recovery tokens to provide the best user experience while prioritizing your privacy.
 
 ## GOALS
 
-> - .env files support
+> - ~~.env files support~~
 > - simplified process of adding new friends using special files

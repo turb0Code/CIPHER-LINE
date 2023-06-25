@@ -171,12 +171,13 @@ class Client_side:
         Chat.send(client, "//REGISTER")
         print("\n" + "-"*20 + "\nSIGN UP")
         login = input(str("LOGIN -> ").strip())
-        password = Encryption.hash_sha(input(str("PASS -> ")).strip())
+        password = input(str("PASS -> ")).strip()
         password_confirm = Encryption.hash_sha(input(str("CONFIRM PASS -> ")).strip())
-        if "^^" in login or "|" in login:
+        if "^^" in login or "|" in login or len(password) < 12:
             print("INVALID VALUES!!!")
             Chat.send(client, "//ERROR")
             return ""
+        password = Encryption.hash_sha(password)
         user_id = Client_side.create_id(login)
         token = Client_side.create_token()
         if password != password_confirm:
@@ -423,7 +424,7 @@ class Interface:
         while True:
             Interface.clear_console()
             Interface.display_logo()
-            print("-"*20 + f"\nLOGGED IN AS: {nickname}" + "\nPICK CHAT:")
+            print("-"*20 + f"\nLOGGED IN AS: {nickname} | {USER_ID}" + "\nPICK CHAT:")
             i = 1
             for _ in range(len(friends)):
                 print(f"{i}. {friends[_].split('|')[0]}")
@@ -569,6 +570,8 @@ if __name__ == "__main__":
         while True:
 
             ex_msg = 2 # ex_msg -> exchanged messages
+
+            USER_ID = Chat.receive(client, True, ecc_shared_server)
 
             recieved = Chat.receive(client, True, ecc_shared_server)
 

@@ -151,6 +151,10 @@ class Database:
             print("USER NOT FOUND!")
             # TODO: SEND ERROR
 
+    @staticmethod
+    def get_user_id(username: str) -> str:
+        return Database.COLLECTION.find_one({"username" : username})["user_id"]
+
 ##############################
 
 class Background:
@@ -389,6 +393,8 @@ class Chat:
 
         while True:
 
+            client.send(Encryption.encrypt(Database.get_user_id(nickname), ecc_shared_user).encode('utf-8'))
+
             client.send(Encryption.encrypt("//CHATROOM", ecc_shared_user).encode('utf-8'))
             chat_id = Client.get_chat_id(client, nickname, ecc_shared_user) #TODO: CHANGE IT!
             if chat_id == "":
@@ -455,12 +461,12 @@ if __name__ == "__main__":
         PORT = input(str("> "))
         set_key("server.env", "PORT", PORT)
         print("SPECIFY SERVER PASSWORD: (press ENTER to SKIP without PASSWORD)")
-        PASSWORD = Encryption.hash_sha(input(str("> ")))
-        if PASSWORD == "":
+        PASSWORD = input(str("> "))
+        if len(PASSWORD) < 1:
             set_key("server.env", "PROTECTED", "false")
         else:
             set_key("server.env", "PROTECTED", "true")
-            set_key("server.env", "PASSWORD", PASSWORD)
+            set_key("server.env", "PASSWORD", Encryption.hash_sha(PASSWORD))
         print("\n" + "-"*20 + "\nDONE...")
         exit(0)
 
