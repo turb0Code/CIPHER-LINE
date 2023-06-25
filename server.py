@@ -5,6 +5,7 @@ import secrets
 import sys
 import signal
 import os
+import hashlib
 
 try:
     from tinyec import ec
@@ -22,7 +23,7 @@ class SAFE_ZONE:
     @staticmethod
     def __get_key(time: str) -> int:
         element = time.split('.')[1]
-        random = (int(element[-1]) + int(element[-2]) + int(element[-3]) + int(element[-4]) + int(element[-5])) % 100
+        random = sum([int(digit) for digit in element]) % 100
         return random
 
     @staticmethod
@@ -31,10 +32,19 @@ class SAFE_ZONE:
         return result.hex()
 
     @staticmethod
+    def __version():
+        try:
+            return dotenv_values("version.env")
+        except Exception as e:
+            print("\n" + "-"*20 + "\nPlease chcek if you have version.env file in this directory!")
+            exit(0)
+            return
+
+    @staticmethod
     def auth(data: str, time: int) -> bool:
         key = SAFE_ZONE.__get_key(time)
-        decrypted = SAFE_ZONE.__decrypt(data, key)
-        if decrypted == "41900c890bafdf402673459a89ef582b67caea2d97afd3de711b3a2c661721c7":
+        decrypted = Encryption.hash_sha(SAFE_ZONE.__decrypt(data, key))
+        if decrypted == SAFE_ZONE.__version()["KEY"]:
             return True
         return False # ---COMMENTED---
         #return True
@@ -65,6 +75,12 @@ class Encryption:
     @staticmethod
     def decrypt(message: str, key) -> str:
         return ''.join(chr((ord(c) - key.x) % Encryption.modulo) for c in message)
+
+    @staticmethod
+    def hash_sha(data: str) -> str:
+        sha256 = hashlib.sha256()
+        sha256.update(data.encode("utf-8"))
+        return sha256.hexdigest()
 
 ##############################
 
@@ -266,7 +282,6 @@ class Client():
 
             client.send("//AUTH".encode('utf-8'))
             auth = client.recv(1024).decode('utf-8').split("^^")
-            print(f"AUTH: {auth}")
             if not SAFE_ZONE.auth(auth[0], auth[1]):
                 print("Authentication failed! CLIENT DISCONNECTED!")
                 client.close()
@@ -408,14 +423,14 @@ class Chat:
 if __name__ == "__main__":
 
     print(r"""
- __  _   ___  ___    __  _ _   _  ___    _   ___ ___
-/ _|/ \ | __|| __|  / _|| U | / \|_ _|  / \ | o \ o \
-\_ \ o || _| | _|  ( (_ |   || o || |  | o ||  _/  _/
-|__/_n_||_|  |___|  \__||_n_||_n_||_|  |_n_||_| |_|
- __  ___  ___ _ _  ___  ___
-/ _|| __|| o \ | || __|| o \
-\_ \| _| |   / V || _| |   /
-|__/|___||_|\\\_/ |___||_|\\
+   ___ ___ ___ _  _ ___ ___           _    ___ _  _ ___
+  / __|_ _| _ \ || | __| _ \   ___   | |  |_ _| \| | __|
+ | (__ | ||  _/ __ | _||   /  |___|  | |__ | || .` | _|
+  \___|___|_|_|_||_|___|_|_\         |____|___|_|\_|___|
+  ___ ___ __ __   __ __ ___
+ / __| __| _ \ \ / / __| _ \
+ \__ \ _||   /\ V /| _||   /
+ |___/___|_|_\ \_/ |___|_|_\
 """)
 
 
@@ -440,7 +455,7 @@ if __name__ == "__main__":
         PORT = input(str("> "))
         set_key("server.env", "PORT", PORT)
         print("SPECIFY SERVER PASSWORD: (press ENTER to SKIP without PASSWORD)")
-        PASSWORD = input(str("> "))
+        PASSWORD = Encryption.hash_sha(input(str("> ")))
         if PASSWORD == "":
             set_key("server.env", "PROTECTED", "false")
         else:

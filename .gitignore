@@ -1,0 +1,10 @@
+#IGNORE ALL TXTs
+*.txt
+
+#IGNORE UNWANTED .env FILES (WITH IP's AND PORT's)
+client.env
+server.env
+
+#IGNORE TEST FILES
+pyg_test.py
+test.py

@@ -173,6 +173,10 @@ class Client_side:
         login = input(str("LOGIN -> ").strip())
         password = Encryption.hash_sha(input(str("PASS -> ")).strip())
         password_confirm = Encryption.hash_sha(input(str("CONFIRM PASS -> ")).strip())
+        if "^^" in login or "|" in login:
+            print("INVALID VALUES!!!")
+            Chat.send(client, "//ERROR")
+            return ""
         user_id = Client_side.create_id(login)
         token = Client_side.create_token()
         if password != password_confirm:
@@ -354,12 +358,12 @@ class Interface:
     @staticmethod
     def display_logo():
         print(r"""
-   _____         ______ ______        _____ _    _       _______             _____  _____
-  / ____|  /\   |  ____|  ____|      / ____| |  | |   /\|__   __|      /\   |  __ \|  __ \
- | (___   /  \  | |__  | |__        | |    | |__| |  /  \  | |        /  \  | |__) | |__) |
-  \___ \ / /\ \ |  __| |  __|       | |    |  __  | / /\ \ | |       / /\ \ |  ___/|  ___/
-  ____) / ____ \| |    | |____      | |____| |  | |/ ____ \| |      / ____ \| |    | |
- |_____/_/    \_\_|    |______|      \_____|_|  |_/_/    \_\_|     /_/    \_\_|    |_|
+   _____ _____ _____  _    _ ______ _____                _      _____ _   _ ______
+  / ____|_   _|  __ \| |  | |  ____|  __ \              | |    |_   _| \ | |  ____|
+ | |      | | | |__) | |__| | |__  | |__) |   ______    | |      | | |  \| | |__
+ | |      | | |  ___/|  __  |  __| |  _  /   |______|   | |      | | | . ` |  __|
+ | |____ _| |_| |    | |  | | |____| | \ \              | |____ _| |_| |\  | |____
+  \_____|_____|_|    |_|  |_|______|_|  \_\             |______|_____|_| \_|______|
  """)
         return
 
@@ -422,11 +426,11 @@ class Interface:
             print("-"*20 + f"\nLOGGED IN AS: {nickname}" + "\nPICK CHAT:")
             i = 1
             for _ in range(len(friends)):
-                print(f"{i}. {friends[_]}")
+                print(f"{i}. {friends[_].split('|')[0]}")
                 i += 1
 
             try:
-                print(f"{i}. NEW USER \n{i+1}. SETTINGS \n{i+2}. EXIT")
+                print(f"{i}. NEW USER \n{i+1}. SETTINGS (IN BETA) \n{i+2}. EXIT")
                 choice = int(input(str("> ")).strip())
 
             except KeyboardInterrupt:
@@ -546,7 +550,7 @@ if __name__ == "__main__":
 
     if "//PASSWORD" in request:
         print("\n" + "-"*20 + "\nThis server demands PASSWORD!")
-        password = input(str("PASS: ")).strip()
+        password = Encryption.hash_sha(input(str("PASS: ")).strip())
         Chat.send(client, password, True, ecc_shared)
         request = Chat.receive(client, True, ecc_shared)
         if request == "//ERROR":
